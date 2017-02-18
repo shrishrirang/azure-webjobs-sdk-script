@@ -57,6 +57,7 @@ namespace Microsoft.Azure.WebJobs.Script.Binding
             private readonly ParameterInfo _parameter;
             private readonly IBindingDataProvider _bindingDataProvider;
             private readonly bool _isUserTypeBinding;
+            private readonly bool _isProxy;
             private readonly Dictionary<string, Type> _bindingDataContract;
             private readonly HttpRouteFactory _httpRouteFactory = new HttpRouteFactory();
 
@@ -78,6 +79,8 @@ namespace Microsoft.Azure.WebJobs.Script.Binding
                         aggregateDataContract.AddRange(_bindingDataProvider.Contract);
                     }
                 }
+
+                _isProxy = attribute.IsProxy;
 
                 // add any route parameters to the contract
                 if (!string.IsNullOrEmpty(attribute.RouteTemplate))
@@ -125,20 +128,60 @@ namespace Microsoft.Azure.WebJobs.Script.Binding
                     throw new NotSupportedException("An HttpRequestMessage is required");
                 }
 
+                HttpResponseMessage responseObjectInFunction = null;
+                if (_isProxy)
+                {
+                    string content = null;
+                    if (request.Content != null)
+                    {
+                        content = await request.Content.ReadAsStringAsync();
+                    }
+
+                    if (_parameter.ParameterType == typeof(HttpResponseMessage))
+                    {
+                        responseObjectInFunction = new HttpResponseMessage();
+
+                        if (!string.IsNullOrEmpty(content))
+                        {
+                            responseObjectInFunction.Deserialize(content);
+                        }                        
+                    }
+                    else if(_parameter.ParameterType == typeof(HttpRequestMessage))
+                    {
+                        var requestObjectInFunction = new HttpRequestMessage();
+
+                        if (!string.IsNullOrEmpty(content))
+                        {
+                            requestObjectInFunction.Deserialize(content);
+                        }
+
+                        // Adding the original request object to the newly created request object's properties as this will be needed when returning response to the client.
+                        requestObjectInFunction.Properties[ScriptConstants.AzureFunctionsHttpProxyRoutingDataKey] = request;
+                        request = requestObjectInFunction;
+                    }
+                }
+
                 IValueProvider valueProvider = null;
                 object poco = null;
                 IReadOnlyDictionary<string, object> userTypeBindingData = null;
                 string invokeString = ToInvokeString(request);
                 if (_isUserTypeBinding)
                 {
-                    valueProvider = await CreateUserTypeValueProvider(request, invokeString);
-                    if (_bindingDataProvider != null)
+                    if (_isProxy && _parameter.ParameterType == typeof(HttpResponseMessage))
                     {
-                        // some binding data is defined by the user type
-                        // the provider might be null if the Type is invalid, or if the Type
-                        // has no public properties to bind to
-                        poco = await valueProvider.GetValueAsync();
-                        userTypeBindingData = _bindingDataProvider.GetBindingData(poco);
+                        valueProvider = new HttpResponseValueBinder(_parameter, responseObjectInFunction, invokeString);
+                    }
+                    else
+                    {
+                        valueProvider = await CreateUserTypeValueProvider(request, invokeString);
+                        if (_bindingDataProvider != null)
+                        {
+                            // some binding data is defined by the user type
+                            // the provider might be null if the Type is invalid, or if the Type
+                            // has no public properties to bind to
+                            poco = await valueProvider.GetValueAsync();
+                            userTypeBindingData = _bindingDataProvider.GetBindingData(poco);
+                        }
                     }
                 }
                 else
@@ -327,6 +370,59 @@ namespace Microsoft.Azure.WebJobs.Script.Binding
                 protected override Stream GetStream()
                 {
                     Task<Stream> task = _request.Content.ReadAsStreamAsync();
+                    task.Wait();
+                    Stream stream = task.Result;
+
+                    if (stream.Position > 0 && stream.CanSeek)
+                    {
+                        // we have to seek back to the beginning when reading as a stream,
+                        // since once the Content is read somewhere else, the stream will
+                        // be at the end
+                        stream.Seek(0, SeekOrigin.Begin);
+                    }
+
+                    return stream;
+                }
+
+                public override string ToInvokeString()
+                {
+                    return _invokeString;
+                }
+            }
+
+            private class HttpResponseValueBinder : StreamValueBinder
+            {
+                private readonly ParameterInfo _parameter;
+                private readonly HttpResponseMessage _response;
+                private readonly string _invokeString;
+
+                public HttpResponseValueBinder(ParameterInfo parameter, HttpResponseMessage response, string invokeString)
+                    : base(parameter)
+                {
+                    _parameter = parameter;
+                    _response = response;
+                    _invokeString = invokeString;
+                }
+
+                public override async Task<object> GetValueAsync()
+                {
+                    if (_parameter.ParameterType == typeof(HttpResponseMessage))
+                    {
+                        return _response;
+                    }
+                    else if (_parameter.ParameterType == typeof(object))
+                    {
+                        // for dynamic, we read as an object, which will actually return
+                        // a JObject which is dynamic
+                        return await _response.Content.ReadAsAsync<object>();
+                    }
+
+                    return await base.GetValueAsync();
+                }
+
+                protected override Stream GetStream()
+                {
+                    Task<Stream> task = _response.Content.ReadAsStreamAsync();
                     task.Wait();
                     Stream stream = task.Result;
 

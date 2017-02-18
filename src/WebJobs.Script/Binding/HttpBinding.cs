@@ -23,9 +23,12 @@ namespace Microsoft.Azure.WebJobs.Script.Binding
 {
     public class HttpBinding : FunctionBinding, IResultProcessingBinding
     {
+        private readonly bool _isProxy;
+
         public HttpBinding(ScriptHostConfiguration config, BindingMetadata metadata, FileAccess access) :
             base(config, metadata, access)
         {
+            _isProxy = metadata.IsProxy;
         }
 
         public override Collection<CustomAttributeBuilder> GetCustomAttributes(Type parameterType)
@@ -261,15 +264,55 @@ namespace Microsoft.Azure.WebJobs.Script.Binding
             }
 
             HttpRequestMessage request = (HttpRequestMessage)functionArguments.Values.Union(systemArguments).FirstOrDefault(p => p is HttpRequestMessage);
+            HttpResponseMessage response = null;
+
             if (request != null)
             {
-                HttpResponseMessage response = result as HttpResponseMessage;
-                if (response == null)
+                if (_isProxy)
                 {
-                    response = CreateNegotiatedResponse(request, HttpStatusCode.OK, result);
+                    CreateResponseForProxies(result, ref request, ref response);
                 }
-
+                else
+                {
+                    response = result as HttpResponseMessage;
+                    if (response == null)
+                    {
+                        response = CreateNegotiatedResponse(request, HttpStatusCode.OK, result);
+                    }
+                }
                 request.Properties[ScriptConstants.AzureFunctionsHttpResponseKey] = response;
+            }
+        }
+
+        private static void CreateResponseForProxies(object result, ref HttpRequestMessage request, ref HttpResponseMessage response)
+        {
+            var requestObjectFromFunction = result as HttpRequestMessage;
+
+            if (requestObjectFromFunction != null)
+            {
+                var requestValue = requestObjectFromFunction.Serialize();
+
+                response = new HttpResponseMessage();
+
+                response.StatusCode = HttpStatusCode.OK;
+                response.RequestMessage = requestObjectFromFunction;
+                response.Content = new StringContent(requestValue);
+
+                // putting back the original request to the function in the pipeline.
+                request = (HttpRequestMessage)request.Properties[ScriptConstants.AzureFunctionsHttpProxyRoutingDataKey];
+            }
+            else
+            {
+                var responseObjectFromFunction = result as HttpResponseMessage;
+                if (responseObjectFromFunction != null)
+                {
+                    var responseValue = responseObjectFromFunction.Serialize();
+
+                    response = new HttpResponseMessage();
+
+                    response.StatusCode = HttpStatusCode.OK;
+                    response.Content = new StringContent(responseValue);
+                }
             }
         }
 
