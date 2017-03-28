@@ -1,4 +1,4 @@
-﻿// Copyright (c) .NET Foundation. All rights reserved.
+﻿    // Copyright (c) .NET Foundation. All rights reserved.
 // Licensed under the MIT License. See License.txt in the project root for license information.
 
 using System;
@@ -7,8 +7,10 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Azure.WebJobs.Host;
+using Microsoft.Azure.WebJobs.Host.Lease;
 using Microsoft.WindowsAzure.Storage;
 using Microsoft.WindowsAzure.Storage.Blob;
+//using Microsoft.Azure.WebJobs.Host.Lease;
 
 namespace Microsoft.Azure.WebJobs.Script
 {
@@ -24,16 +26,40 @@ namespace Microsoft.Azure.WebJobs.Script
         private readonly TraceWriter _traceWriter;
         private readonly string _hostId;
         private readonly string _instanceId;
-        private ICloudBlob _lockBlob;
+        private ICloudBlob _lockBlob; // FIXME: not needed anymore
+        private LeaseDefinition _leaseDefinition;
         private string _leaseId;
         private bool _disposed;
         private bool _processingLease;
         private DateTime _lastRenewal;
         private TimeSpan _lastRenewalLatency;
+        private ILeasor _leasor;
+        private string _accountName;
 
+        //FIXME: remove this ctor
         internal BlobLeaseManager(ICloudBlob lockBlob, TimeSpan leaseTimeout, string hostId, string instanceId, TraceWriter traceWriter, TimeSpan? renewalInterval = null)
         {
             _lockBlob = lockBlob;
+            _leaseTimeout = leaseTimeout;
+            _traceWriter = traceWriter;
+            _hostId = hostId;
+            _instanceId = instanceId;
+
+            // Renew the lease three seconds before it expires
+            _renewalInterval = renewalInterval ?? leaseTimeout.Add(TimeSpan.FromSeconds(-3));
+
+            // Attempt to acquire a lease every 5 seconds
+            _leaseRetryInterval = TimeSpan.FromSeconds(5);
+
+            _timer = new Timer(ProcessLeaseTimerTick, null, TimeSpan.Zero, _leaseRetryInterval);
+        }
+
+        //FIXME: consider combining multiple params into a single leasedef param
+        internal BlobLeaseManager(ILeasor leasor, string accountName, LeaseDefinition leaseDefinition, TimeSpan leaseTimeout, string hostId, string instanceId, TraceWriter traceWriter, TimeSpan? renewalInterval = null)
+        {
+            _leasor = leasor;
+            _accountName = accountName;
+            _leaseDefinition = leaseDefinition;
             _leaseTimeout = leaseTimeout;
             _traceWriter = traceWriter;
             _hostId = hostId;
@@ -72,21 +98,29 @@ namespace Microsoft.Azure.WebJobs.Script
 
         private void OnHasLeaseChanged() => HasLeaseChanged?.Invoke(this, EventArgs.Empty);
 
-        public static async Task<BlobLeaseManager> CreateAsync(string accountConnectionString, TimeSpan leaseTimeout, string hostId, string instanceId, TraceWriter traceWriter)
+        public static Task<BlobLeaseManager> CreateAsync(string s, TimeSpan leaseTimeout, string hostId,
+            string instanceId, TraceWriter traceWriter)
+        {
+            // FIXME: method not needed. just adding to keep tests compiling
+            return Task.FromResult<BlobLeaseManager>(null);
+        }
+
+        public static BlobLeaseManager Create(ILeasor leasor, string accountName, TimeSpan leaseTimeout, string hostId, string instanceId, TraceWriter traceWriter)
         {
             if (leaseTimeout.TotalSeconds < 15 || leaseTimeout.TotalSeconds > 60)
             {
                 throw new ArgumentOutOfRangeException(nameof(leaseTimeout), $"The {nameof(leaseTimeout)} should be between 15 and 60 seconds");
             }
 
-            ICloudBlob blob = await GetLockBlobAsync(accountConnectionString, GetBlobName(hostId));
-            var manager = new BlobLeaseManager(blob, leaseTimeout, hostId, instanceId, traceWriter);
+            var manager = new BlobLeaseManager(leasor, accountName, null, leaseTimeout, hostId, instanceId, traceWriter);
             return manager;
         }
 
         public static BlobLeaseManager Create(string accountConnectionString, TimeSpan leaseTimeout, string hostId, string instanceId, TraceWriter traceWriter)
         {
-            return CreateAsync(accountConnectionString, leaseTimeout, hostId, instanceId, traceWriter).GetAwaiter().GetResult();
+            // FIXME
+            // return CreateAsync(null, null, leaseTimeout, hostId, instanceId, traceWriter).GetAwaiter().GetResult();
+            return null;
         }
 
         private void ProcessLeaseTimerTick(object state)
@@ -118,16 +152,27 @@ namespace Microsoft.Azure.WebJobs.Script
         {
             try
             {
+                LeaseDefinition leaseDefinition = new LeaseDefinition
+                {
+                    AccountName = _accountName,
+                    Namespace = HostContainerName,
+                    Category = null,
+                    LockId = _hostId,
+                    Period = _leaseTimeout
+                };
+
                 DateTime requestStart = DateTime.UtcNow;
                 if (HasLease)
                 {
-                    await _lockBlob.RenewLeaseAsync(new AccessCondition { LeaseId = LeaseId });
+                    leaseDefinition.LeaseId = LeaseId;
+                    await _leasor.RenewLeaseAsync(leaseDefinition, CancellationToken.None);
                     _lastRenewal = DateTime.UtcNow;
                     _lastRenewalLatency = _lastRenewal - requestStart;
                 }
                 else
                 {
-                    LeaseId = await _lockBlob.AcquireLeaseAsync(_leaseTimeout, _instanceId);
+                    leaseDefinition.LeaseId = _instanceId;
+                    LeaseId = await _leasor.AcquireLeaseAsync(leaseDefinition, CancellationToken.None);
                     _lastRenewal = DateTime.UtcNow;
                     _lastRenewalLatency = _lastRenewal - requestStart;
 
@@ -137,10 +182,11 @@ namespace Microsoft.Azure.WebJobs.Script
                     SetTimerInterval(_renewalInterval);
                 }
             }
-            catch (StorageException exc)
+            catch (LeaseException exc)
             {                
-                if (exc.RequestInformation.HttpStatusCode == 409)
+                if (exc.FailureReason == LeaseFailureReason.Conflict)
                 {
+                    // FIXME: update comment
                     // If we did not have the lease already, a 409 indicates that another host had it. This is 
                     // normal and does not warrant any logging.
 
@@ -153,23 +199,9 @@ namespace Microsoft.Azure.WebJobs.Script
                         ProcessLeaseError($"Another host has acquired the lease. The last successful renewal completed at {lastRenewalFormatted} ({millisecondsSinceLastSuccess} milliseconds ago) with a duration of {lastRenewalMilliseconds} milliseconds.");
                     }
                 }
-                else if (exc.RequestInformation.HttpStatusCode >= 500)
-                {
-                    ProcessLeaseError($"Server error {exc.RequestInformation.HttpStatusMessage}.");
-                }
-                else if (exc.RequestInformation.HttpStatusCode == 404)
-                {
-                    // The blob or container do not exist, reset the lease information
-                    ResetLease();
 
-                    // Create the blob and retry
-                    _lockBlob = await GetLockBlobAsync(_lockBlob.ServiceClient, GetBlobName(_hostId));
-                    await AcquireOrRenewLeaseAsync();
-                }
-                else
-                {
-                    throw;
-                }
+                ProcessLeaseError($"Server error {exc}."); // FIXME: make sure this logs details as expected. 
+                throw;
             }
         }
 
@@ -245,7 +277,16 @@ namespace Microsoft.Azure.WebJobs.Script
             {
                 if (HasLease)
                 {
-                    _lockBlob.ReleaseLease(new AccessCondition { LeaseId = LeaseId });
+                    LeaseDefinition leaseDefinition = new LeaseDefinition
+                    {
+                        AccountName = _accountName,
+                        Namespace = HostContainerName,
+                        Category = null,
+                        LockId = _hostId,
+                        LeaseId = LeaseId,
+                        Period = _leaseTimeout
+                    };
+                    _leasor.ReleaseLeaseAsync(leaseDefinition, CancellationToken.None).GetAwaiter().GetResult();
                     _traceWriter.Verbose($"Host instance '{_instanceId}' released lock lease.");
                 }
             }
