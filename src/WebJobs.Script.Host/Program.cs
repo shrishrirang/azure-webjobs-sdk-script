@@ -15,7 +15,7 @@ namespace Microsoft.Azure.WebJobs.Script.Host
                 throw new ArgumentNullException("args");
             }
 
-            string rootPath = Environment.CurrentDirectory;
+            string rootPath = @"\\shrirsprem\sample"; //Environment.CurrentDirectory;
             if (args.Length > 0)
             {
                 rootPath = (string)args[0];
