@@ -15,7 +15,7 @@ namespace Microsoft.Azure.WebJobs.Script.Host
                 throw new ArgumentNullException("args");
             }
 
-            string rootPath = @"D:\shrirang\repo\shrishrirang\azure-webjobs-sdk-script\sample"; //Environment.CurrentDirectory;
+            string rootPath = @"D:\shrirang\repo\shrishrirang\azure-webjobs-sdk-script\sample"; //Environment.CurrentDirectory; // @"\\shrirsprem\sample"; // 
             if (args.Length > 0)
             {
                 rootPath = (string)args[0];
@@ -25,12 +25,6 @@ namespace Microsoft.Azure.WebJobs.Script.Host
             {
                 RootScriptPath = rootPath
             };
-
-            config.HostConfig.DashboardConnectionString = @"DefaultEndpointsProtocol=https;AccountName=shrirsstorage;AccountKey=TEdRJXQ0MOH0wYGUgcAEmzPgazvrB6YhYhalQA58hcui/5c8Vnqt6iFN5lMFA27OZoK8nNvGLoarQB8+iG7mUw==;EndpointSuffix=core.windows.net";
-            if (!config.HostConfig.IsDevelopment)
-            {
-//                throw new InvalidOperationException("shrirang");
-            }
 
             ScriptHostManager scriptHostManager = new ScriptHostManager(config);
             scriptHostManager.RunAndBlock();
