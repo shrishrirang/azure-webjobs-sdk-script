@@ -84,7 +84,7 @@ namespace Microsoft.Azure.WebJobs.Script
                 if (_instanceId == null)
                 {
                     _instanceId = _settingsManager.GetSetting(EnvironmentSettingNames.AzureWebsiteInstanceId)
-                        ?? Environment.MachineName.GetHashCode().ToString("X").PadLeft(32, '0');
+                        ?? Guid.NewGuid().GetHashCode().ToString("X").PadLeft(32, '0');
 
                     _instanceId = _instanceId.Substring(0, 32);
                 }
