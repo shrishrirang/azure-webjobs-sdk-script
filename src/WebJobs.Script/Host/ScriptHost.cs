@@ -310,7 +310,7 @@ namespace Microsoft.Azure.WebJobs.Script
 
                 _debugModeFileWatcher.Changed += OnDebugModeFileChanged;
 
-                string accountName = ConnectionStringNames.Leasor;
+                string accountName = ConnectionStringNames.Lease;
 
                 if (string.IsNullOrWhiteSpace(AmbientConnectionStringProvider.Instance.GetConnectionString(accountName)))
                 {
@@ -325,8 +325,8 @@ namespace Microsoft.Azure.WebJobs.Script
                 }
                 else
                 {
-                    ILeasor leasor = ScriptConfig.HostConfig.GetService<ILeasor>();
-                    _blobLeaseManager = BlobLeaseManager.Create(leasor, accountName, TimeSpan.FromSeconds(15), ScriptConfig.HostConfig.HostId, InstanceId, TraceWriter);
+                    ILeaseProxy leaseProxy = ScriptConfig.HostConfig.GetService<ILeaseProxy>();
+                    _blobLeaseManager = BlobLeaseManager.Create(leaseProxy, accountName, TimeSpan.FromSeconds(15), ScriptConfig.HostConfig.HostId, InstanceId, TraceWriter);
                 }
 
                 var bindingProviders = LoadBindingProviders(ScriptConfig, hostConfig, TraceWriter);

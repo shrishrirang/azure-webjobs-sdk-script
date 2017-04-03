@@ -10,7 +10,6 @@ using Microsoft.Azure.WebJobs.Host;
 using Microsoft.Azure.WebJobs.Host.Lease;
 using Microsoft.WindowsAzure.Storage;
 using Microsoft.WindowsAzure.Storage.Blob;
-//using Microsoft.Azure.WebJobs.Host.Lease;
 
 namespace Microsoft.Azure.WebJobs.Script
 {
@@ -33,7 +32,7 @@ namespace Microsoft.Azure.WebJobs.Script
         private bool _processingLease;
         private DateTime _lastRenewal;
         private TimeSpan _lastRenewalLatency;
-        private ILeasor _leasor;
+        private ILeaseProxy _leaseProxy;
         private string _accountName;
 
         //FIXME: remove this ctor
@@ -55,9 +54,9 @@ namespace Microsoft.Azure.WebJobs.Script
         }
 
         //FIXME: consider combining multiple params into a single leasedef param
-        internal BlobLeaseManager(ILeasor leasor, string accountName, LeaseDefinition leaseDefinition, TimeSpan leaseTimeout, string hostId, string instanceId, TraceWriter traceWriter, TimeSpan? renewalInterval = null)
+        internal BlobLeaseManager(ILeaseProxy leaseProxy, string accountName, LeaseDefinition leaseDefinition, TimeSpan leaseTimeout, string hostId, string instanceId, TraceWriter traceWriter, TimeSpan? renewalInterval = null)
         {
-            _leasor = leasor;
+            _leaseProxy = leaseProxy;
             _accountName = accountName;
             _leaseDefinition = leaseDefinition;
             _leaseTimeout = leaseTimeout;
@@ -105,14 +104,14 @@ namespace Microsoft.Azure.WebJobs.Script
             return Task.FromResult<BlobLeaseManager>(null);
         }
 
-        public static BlobLeaseManager Create(ILeasor leasor, string accountName, TimeSpan leaseTimeout, string hostId, string instanceId, TraceWriter traceWriter)
+        public static BlobLeaseManager Create(ILeaseProxy leaseProxy, string accountName, TimeSpan leaseTimeout, string hostId, string instanceId, TraceWriter traceWriter)
         {
             if (leaseTimeout.TotalSeconds < 15 || leaseTimeout.TotalSeconds > 60)
             {
                 throw new ArgumentOutOfRangeException(nameof(leaseTimeout), $"The {nameof(leaseTimeout)} should be between 15 and 60 seconds");
             }
 
-            var manager = new BlobLeaseManager(leasor, accountName, null, leaseTimeout, hostId, instanceId, traceWriter);
+            var manager = new BlobLeaseManager(leaseProxy, accountName, null, leaseTimeout, hostId, instanceId, traceWriter);
             return manager;
         }
 
@@ -165,14 +164,14 @@ namespace Microsoft.Azure.WebJobs.Script
                 if (HasLease)
                 {
                     leaseDefinition.LeaseId = LeaseId;
-                    await _leasor.RenewLeaseAsync(leaseDefinition, CancellationToken.None);
+                    await _leaseProxy.RenewLeaseAsync(leaseDefinition, CancellationToken.None);
                     _lastRenewal = DateTime.UtcNow;
                     _lastRenewalLatency = _lastRenewal - requestStart;
                 }
                 else
                 {
                     leaseDefinition.LeaseId = _instanceId;
-                    LeaseId = await _leasor.AcquireLeaseAsync(leaseDefinition, CancellationToken.None);
+                    LeaseId = await _leaseProxy.AcquireLeaseAsync(leaseDefinition, CancellationToken.None);
                     _lastRenewal = DateTime.UtcNow;
                     _lastRenewalLatency = _lastRenewal - requestStart;
 
@@ -286,7 +285,7 @@ namespace Microsoft.Azure.WebJobs.Script
                         LeaseId = LeaseId,
                         Period = _leaseTimeout
                     };
-                    _leasor.ReleaseLeaseAsync(leaseDefinition, CancellationToken.None).GetAwaiter().GetResult();
+                    _leaseProxy.ReleaseLeaseAsync(leaseDefinition, CancellationToken.None).GetAwaiter().GetResult(); // FIXME: .Result
                     _traceWriter.Verbose($"Host instance '{_instanceId}' released lock lease.");
                 }
             }
