@@ -2,6 +2,7 @@
 // Licensed under the MIT License. See License.txt in the project root for license information.
 
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Threading;
@@ -154,9 +155,8 @@ namespace Microsoft.Azure.WebJobs.Script
                 LeaseDefinition leaseDefinition = new LeaseDefinition
                 {
                     AccountName = _accountName,
-                    Namespace = HostContainerName,
-                    Category = null,
-                    LockId = _hostId,
+                    Namespaces = new List<string> { HostContainerName },
+                    Name = _hostId,
                     Period = _leaseTimeout
                 };
 
@@ -279,9 +279,8 @@ namespace Microsoft.Azure.WebJobs.Script
                     LeaseDefinition leaseDefinition = new LeaseDefinition
                     {
                         AccountName = _accountName,
-                        Namespace = HostContainerName,
-                        Category = null,
-                        LockId = _hostId,
+                        Namespaces = new List<string> { HostContainerName },
+                        Name = _hostId,
                         LeaseId = LeaseId,
                         Period = _leaseTimeout
                     };
