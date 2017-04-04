@@ -11,11 +11,13 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Azure.WebJobs.Host;
 using Microsoft.Azure.WebJobs.Host.Lease;
+using Microsoft.Azure.WebJobs.Script.Config;
 using Microsoft.WindowsAzure.Storage;
 using Microsoft.WindowsAzure.Storage.Blob;
 using Moq;
 using Xunit;
 
+// FIXME
 namespace Microsoft.Azure.WebJobs.Script.Tests
 {
     public class BlobLeaseManagerTests
@@ -75,48 +77,56 @@ namespace Microsoft.Azure.WebJobs.Script.Tests
             await ClearLeaseBlob(hostId);
         }
 
-        //[Fact]
-        //public async Task HasLeaseChanged_WhenLeaseIsLostAndStateChanges_IsFired()
-        //{
-        //    string hostId = Guid.NewGuid().ToString();
-        //    string instanceId = Guid.NewGuid().ToString();
-        //    string connectionString = AmbientConnectionStringProvider.Instance.GetConnectionString(ConnectionStringNames.Storage);
-        //    ICloudBlob blob = await GetLockBlobAsync(connectionString, hostId);
+        [Fact]
+        public async Task HasLeaseChanged_WhenLeaseIsLostAndStateChanges_IsFired()
+        {
+            //var environment = new Mock<IScriptHostEnvironment>();
+            //var config = new ScriptHostConfiguration()
+            //{
+            //};
+            //config.HostConfig.HostId = "some-id";
+            //var scriptHost = ScriptHost.Create(environment.Object, config, ScriptSettingsManager.Instance);
+            //var leaseProxy = scriptHost.ScriptConfig.HostConfig.GetService<ILeaseProxy>();
 
-        //    var traceWriter = new TestTraceWriter(TraceLevel.Verbose);
-        //    var resetEvent = new ManualResetEventSlim();
+            //    string hostId = Guid.NewGuid().ToString();
+            //    string instanceId = Guid.NewGuid().ToString();
+            //    string connectionString = AmbientConnectionStringProvider.Instance.GetConnectionString(ConnectionStringNames.Storage);
+            //    ICloudBlob blob = await GetLockBlobAsync(connectionString, hostId);
 
-        //    BlobLeaseManager manager = null;
-        //    string tempLeaseId = null;
+            //    var traceWriter = new TestTraceWriter(TraceLevel.Verbose);
+            //    var resetEvent = new ManualResetEventSlim();
 
-        //    using (manager = new BlobLeaseManager(blob, TimeSpan.FromSeconds(15), hostId, instanceId, traceWriter, TimeSpan.FromSeconds(3)))
-        //    {
-        //        try
-        //        {
-        //            await TestHelpers.Await(() => manager.HasLease);
+            //    BlobLeaseManager manager = null;
+            //    string tempLeaseId = null;
 
-        //            manager.HasLeaseChanged += (s, a) => resetEvent.Set();
+            //    using (manager = new BlobLeaseManager(blob, TimeSpan.FromSeconds(15), hostId, instanceId, traceWriter, TimeSpan.FromSeconds(3)))
+            //    {
+            //        try
+            //        {
+            //            await TestHelpers.Await(() => manager.HasLease);
 
-        //            // Release the manager's lease and acquire one with a different id
-        //            await blob.ReleaseLeaseAsync(new AccessCondition { LeaseId = manager.LeaseId });
-        //            tempLeaseId = await blob.AcquireLeaseAsync(TimeSpan.FromSeconds(30), Guid.NewGuid().ToString());
-        //        }
-        //        finally
-        //        {
-        //            if (tempLeaseId != null)
-        //            {
-        //                await blob.ReleaseLeaseAsync(new AccessCondition { LeaseId = tempLeaseId });
-        //            }
-        //        }
+            //            manager.HasLeaseChanged += (s, a) => resetEvent.Set();
 
-        //        resetEvent.Wait(TimeSpan.FromSeconds(15));
-        //    }
+            //            // Release the manager's lease and acquire one with a different id
+            //            await blob.ReleaseLeaseAsync(new AccessCondition { LeaseId = manager.LeaseId });
+            //            tempLeaseId = await blob.AcquireLeaseAsync(TimeSpan.FromSeconds(30), Guid.NewGuid().ToString());
+            //        }
+            //        finally
+            //        {
+            //            if (tempLeaseId != null)
+            //            {
+            //                await blob.ReleaseLeaseAsync(new AccessCondition { LeaseId = tempLeaseId });
+            //            }
+            //        }
 
-        //    Assert.True(resetEvent.IsSet);
-        //    Assert.False(manager.HasLease, $"{nameof(BlobLeaseManager.HasLease)} was not correctly set to 'false' when lease lost.");
+            //        resetEvent.Wait(TimeSpan.FromSeconds(15));
+            //    }
 
-        //    await ClearLeaseBlob(hostId);
-        //}
+            //    Assert.True(resetEvent.IsSet);
+            //    Assert.False(manager.HasLease, $"{nameof(BlobLeaseManager.HasLease)} was not correctly set to 'false' when lease lost.");
+
+            //    await ClearLeaseBlob(hostId);
+        }
 
         //[Fact]
         //public void AcquiringLease_WithServerError_LogsAndRetries()
