@@ -1,12 +1,14 @@
-﻿// Copyright (c) .NET Foundation. All rights reserved.
+﻿    // Copyright (c) .NET Foundation. All rights reserved.
 // Licensed under the MIT License. See License.txt in the project root for license information.
 
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Azure.WebJobs.Host;
+using Microsoft.Azure.WebJobs.Host.Lease;
 using Microsoft.WindowsAzure.Storage;
 using Microsoft.WindowsAzure.Storage.Blob;
 
@@ -24,16 +26,19 @@ namespace Microsoft.Azure.WebJobs.Script
         private readonly TraceWriter _traceWriter;
         private readonly string _hostId;
         private readonly string _instanceId;
-        private ICloudBlob _lockBlob;
         private string _leaseId;
         private bool _disposed;
         private bool _processingLease;
         private DateTime _lastRenewal;
         private TimeSpan _lastRenewalLatency;
+        private ILeaseProxy _leaseProxy;
+        private string _accountName;
 
-        internal BlobLeaseManager(ICloudBlob lockBlob, TimeSpan leaseTimeout, string hostId, string instanceId, TraceWriter traceWriter, TimeSpan? renewalInterval = null)
+        //FIXME: consider combining multiple params into a single leasedef param
+        internal BlobLeaseManager(ILeaseProxy leaseProxy, string accountName, TimeSpan leaseTimeout, string hostId, string instanceId, TraceWriter traceWriter, TimeSpan? renewalInterval = null)
         {
-            _lockBlob = lockBlob;
+            _leaseProxy = leaseProxy;
+            _accountName = accountName;
             _leaseTimeout = leaseTimeout;
             _traceWriter = traceWriter;
             _hostId = hostId;
@@ -72,21 +77,15 @@ namespace Microsoft.Azure.WebJobs.Script
 
         private void OnHasLeaseChanged() => HasLeaseChanged?.Invoke(this, EventArgs.Empty);
 
-        public static async Task<BlobLeaseManager> CreateAsync(string accountConnectionString, TimeSpan leaseTimeout, string hostId, string instanceId, TraceWriter traceWriter)
+        public static BlobLeaseManager Create(ILeaseProxy leaseProxy, string accountName, TimeSpan leaseTimeout, string hostId, string instanceId, TraceWriter traceWriter)
         {
             if (leaseTimeout.TotalSeconds < 15 || leaseTimeout.TotalSeconds > 60)
             {
                 throw new ArgumentOutOfRangeException(nameof(leaseTimeout), $"The {nameof(leaseTimeout)} should be between 15 and 60 seconds");
             }
 
-            ICloudBlob blob = await GetLockBlobAsync(accountConnectionString, GetBlobName(hostId));
-            var manager = new BlobLeaseManager(blob, leaseTimeout, hostId, instanceId, traceWriter);
+            var manager = new BlobLeaseManager(leaseProxy, accountName, leaseTimeout, hostId, instanceId, traceWriter);
             return manager;
-        }
-
-        public static BlobLeaseManager Create(string accountConnectionString, TimeSpan leaseTimeout, string hostId, string instanceId, TraceWriter traceWriter)
-        {
-            return CreateAsync(accountConnectionString, leaseTimeout, hostId, instanceId, traceWriter).GetAwaiter().GetResult();
         }
 
         private void ProcessLeaseTimerTick(object state)
@@ -118,16 +117,26 @@ namespace Microsoft.Azure.WebJobs.Script
         {
             try
             {
+                LeaseDefinition leaseDefinition = new LeaseDefinition
+                {
+                    AccountName = _accountName,
+                    Namespaces = new List<string> { HostContainerName },
+                    Name = _hostId,
+                    Period = _leaseTimeout
+                };
+
                 DateTime requestStart = DateTime.UtcNow;
                 if (HasLease)
                 {
-                    await _lockBlob.RenewLeaseAsync(new AccessCondition { LeaseId = LeaseId });
+                    leaseDefinition.LeaseId = LeaseId;
+                    await _leaseProxy.RenewLeaseAsync(leaseDefinition, CancellationToken.None);
                     _lastRenewal = DateTime.UtcNow;
                     _lastRenewalLatency = _lastRenewal - requestStart;
                 }
                 else
                 {
-                    LeaseId = await _lockBlob.AcquireLeaseAsync(_leaseTimeout, _instanceId);
+                    leaseDefinition.LeaseId = _instanceId;
+                    LeaseId = await _leaseProxy.AcquireLeaseAsync(leaseDefinition, CancellationToken.None);
                     _lastRenewal = DateTime.UtcNow;
                     _lastRenewalLatency = _lastRenewal - requestStart;
 
@@ -137,10 +146,11 @@ namespace Microsoft.Azure.WebJobs.Script
                     SetTimerInterval(_renewalInterval);
                 }
             }
-            catch (StorageException exc)
+            catch (LeaseException exc)
             {                
-                if (exc.RequestInformation.HttpStatusCode == 409)
+                if (exc.FailureReason == LeaseFailureReason.Conflict)
                 {
+                    // FIXME: update comment
                     // If we did not have the lease already, a 409 indicates that another host had it. This is 
                     // normal and does not warrant any logging.
 
@@ -153,23 +163,9 @@ namespace Microsoft.Azure.WebJobs.Script
                         ProcessLeaseError($"Another host has acquired the lease. The last successful renewal completed at {lastRenewalFormatted} ({millisecondsSinceLastSuccess} milliseconds ago) with a duration of {lastRenewalMilliseconds} milliseconds.");
                     }
                 }
-                else if (exc.RequestInformation.HttpStatusCode >= 500)
-                {
-                    ProcessLeaseError($"Server error {exc.RequestInformation.HttpStatusMessage}.");
-                }
-                else if (exc.RequestInformation.HttpStatusCode == 404)
-                {
-                    // The blob or container do not exist, reset the lease information
-                    ResetLease();
 
-                    // Create the blob and retry
-                    _lockBlob = await GetLockBlobAsync(_lockBlob.ServiceClient, GetBlobName(_hostId));
-                    await AcquireOrRenewLeaseAsync();
-                }
-                else
-                {
-                    throw;
-                }
+                ProcessLeaseError($"Server error {exc}."); // FIXME: make sure this logs details as expected. 
+                throw;
             }
         }
 
@@ -189,45 +185,6 @@ namespace Microsoft.Azure.WebJobs.Script
             }
         }
 
-        private static async Task<ICloudBlob> GetLockBlobAsync(string accountConnectionString, string blobName)
-        {
-            CloudStorageAccount account = CloudStorageAccount.Parse(accountConnectionString);
-            CloudBlobClient client = account.CreateCloudBlobClient();
-
-            return await GetLockBlobAsync(client, blobName);
-        }
-
-        private static async Task<ICloudBlob> GetLockBlobAsync(CloudBlobClient client, string blobName)
-        {
-            var container = client.GetContainerReference(HostContainerName);
-
-            try
-            {
-                await container.CreateIfNotExistsAsync();
-            }
-            catch (StorageException exc)
-            when (exc.RequestInformation.HttpStatusCode == 409 && string.Compare("ContainerBeingDeleted", exc.RequestInformation.ExtendedErrorInformation?.ErrorCode) == 0)
-            {
-                throw new StorageException("The host container is pending deletion and currently inaccessible.");
-            }
-
-            CloudBlockBlob blob = container.GetBlockBlobReference(blobName);
-            if (!await blob.ExistsAsync())
-            {
-                try
-                {
-                    await blob.UploadFromStreamAsync(new MemoryStream());
-                }
-                catch (StorageException exc)
-                when (exc.RequestInformation.HttpStatusCode == 412 || exc.RequestInformation.HttpStatusCode == 409)
-                {
-                    // The blob already exists or a lease has already been acquired.
-                }
-            }
-
-            return blob;
-        }
-
         private void ResetLease()
         {
             LeaseId = null;
@@ -245,7 +202,15 @@ namespace Microsoft.Azure.WebJobs.Script
             {
                 if (HasLease)
                 {
-                    _lockBlob.ReleaseLease(new AccessCondition { LeaseId = LeaseId });
+                    LeaseDefinition leaseDefinition = new LeaseDefinition
+                    {
+                        AccountName = _accountName,
+                        Namespaces = new List<string> { HostContainerName },
+                        Name = _hostId,
+                        LeaseId = LeaseId,
+                        Period = _leaseTimeout
+                    };
+                    _leaseProxy.ReleaseLeaseAsync(leaseDefinition, CancellationToken.None).GetAwaiter().GetResult(); // FIXME: .Result
                     _traceWriter.Verbose($"Host instance '{_instanceId}' released lock lease.");
                 }
             }

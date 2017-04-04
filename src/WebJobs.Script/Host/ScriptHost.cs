@@ -20,6 +20,7 @@ using Microsoft.Azure.WebJobs.Extensions;
 using Microsoft.Azure.WebJobs.Extensions.BotFramework.Bindings;
 using Microsoft.Azure.WebJobs.Host;
 using Microsoft.Azure.WebJobs.Host.Indexers;
+using Microsoft.Azure.WebJobs.Host.Lease;
 using Microsoft.Azure.WebJobs.Host.Listeners;
 using Microsoft.Azure.WebJobs.Script.Binding;
 using Microsoft.Azure.WebJobs.Script.Config;
@@ -83,7 +84,7 @@ namespace Microsoft.Azure.WebJobs.Script
                 if (_instanceId == null)
                 {
                     _instanceId = _settingsManager.GetSetting(EnvironmentSettingNames.AzureWebsiteInstanceId)
-                        ?? Environment.MachineName.GetHashCode().ToString("X").PadLeft(32, '0');
+                        ?? Guid.NewGuid().GetHashCode().ToString("X").PadLeft(32, '0');
 
                     _instanceId = _instanceId.Substring(0, 32);
                 }
@@ -309,17 +310,23 @@ namespace Microsoft.Azure.WebJobs.Script
 
                 _debugModeFileWatcher.Changed += OnDebugModeFileChanged;
 
-                var storageString = AmbientConnectionStringProvider.Instance.GetConnectionString(ConnectionStringNames.Storage);
-                Task<BlobLeaseManager> blobManagerCreation = null;
-                if (storageString == null)
+                string accountName = ConnectionStringNames.Lease;
+
+                if (string.IsNullOrWhiteSpace(AmbientConnectionStringProvider.Instance.GetConnectionString(accountName)))
+                {
+                    accountName = ConnectionStringNames.Storage;
+                }
+
+                if (string.IsNullOrWhiteSpace(accountName))
                 {
                     // Disable core storage 
                     ScriptConfig.HostConfig.StorageConnectionString = null;
-                    blobManagerCreation = Task.FromResult<BlobLeaseManager>(null);
+                    _blobLeaseManager = null;
                 }
                 else
                 {
-                    blobManagerCreation = BlobLeaseManager.CreateAsync(storageString, TimeSpan.FromSeconds(15), ScriptConfig.HostConfig.HostId, InstanceId, TraceWriter);
+                    ILeaseProxy leaseProxy = ScriptConfig.HostConfig.GetService<ILeaseProxy>();
+                    _blobLeaseManager = BlobLeaseManager.Create(leaseProxy, accountName, TimeSpan.FromSeconds(15), ScriptConfig.HostConfig.HostId, InstanceId, TraceWriter);
                 }
 
                 var bindingProviders = LoadBindingProviders(ScriptConfig, hostConfig, TraceWriter);
@@ -365,7 +372,7 @@ namespace Microsoft.Azure.WebJobs.Script
 
                 // Create the lease manager that will keep handle the primary host blob lease acquisition and renewal 
                 // and subscribe for change notifications.
-                _blobLeaseManager = blobManagerCreation.GetAwaiter().GetResult();
+                // _blobLeaseManager = blobManagerCreation.GetAwaiter().GetResult(); // FIXME: Check that changing Create from async to sync has no issues
                 if (_blobLeaseManager != null)
                 {
                     _blobLeaseManager.HasLeaseChanged += BlobLeaseManagerHasLeaseChanged;
