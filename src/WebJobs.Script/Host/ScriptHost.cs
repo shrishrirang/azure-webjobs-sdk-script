@@ -38,6 +38,10 @@ namespace Microsoft.Azure.WebJobs.Script
 {
     public class ScriptHost : JobHost
     {
+        // TODO: This is just temporary. Find better way to do this
+        internal const string AzureWebJobsScriptModeName = "AzureWebJobsScriptMode";
+        internal const string AzureWebJobsScriptModeStandalone = "standalone";
+
         internal const int DebugModeTimeoutMinutes = 15;
         private const string HostAssemblyName = "ScriptHost";
         private const string GeneratedTypeNamespace = "Host";
@@ -290,7 +294,16 @@ namespace Microsoft.Azure.WebJobs.Script
                 ScriptConfig.HostConfig.Tracing.Tracers.Add(traceMonitor);
 
                 TraceLevel hostTraceLevel = ScriptConfig.HostConfig.Tracing.ConsoleLevel;
-                if (ScriptConfig.FileLoggingMode != FileLoggingMode.Never)
+
+                // TODO: This needs to be fixed. Temporarily unblocking standalone scenario
+                if (AzureWebJobsScriptModeStandalone.Equals(Environment.GetEnvironmentVariable(AzureWebJobsScriptModeName)))
+                {
+                    // CompositeTraceWriter is not an IDisposable whereas the trace writers it is composed of can be.
+                    // This needs to be fixed. Temporarily, special casing standalone mode initialization to take the easiest (but a bad) path
+                    // to working around CA 2000 warning.
+                    InitializeStandaloneModeTraceWriters(hostTraceLevel);
+                }
+                else if (ScriptConfig.FileLoggingMode != FileLoggingMode.Never)
                 {
                     // Host file logging is only done conditionally
                     string hostLogFilePath = Path.Combine(ScriptConfig.RootLogPath, "Host");
@@ -413,6 +426,37 @@ namespace Microsoft.Azure.WebJobs.Script
                     PurgeOldLogDirectories();
                 }
             }
+        }
+
+        private void InitializeStandaloneModeTraceWriters(TraceLevel hostTraceLevel)
+        {
+            IList<TraceWriter> traceWriters = new List<TraceWriter>();
+
+            // Global trace writer
+            if (TraceWriter != null)
+            {
+                traceWriters.Add(TraceWriter);
+            }
+
+            // Sql tracing
+            string sqlTracerConnectionString =
+                AmbientConnectionStringProvider.Instance.GetConnectionString(SqlTraceWriter.ConnectionStringName);
+            if (!string.IsNullOrWhiteSpace(sqlTracerConnectionString))
+            {
+                var sqlTraceWriter = new SqlTraceWriter(sqlTracerConnectionString,
+                    ScriptSettingsManager.Instance.GetSetting(EnvironmentSettingNames.AzureWebsiteName),
+                    null, // no function name for host level tracing
+                    hostTraceLevel);
+
+                traceWriters.Add(sqlTraceWriter);
+            }
+
+            // File tracing
+            string hostLogFilePath = Path.Combine(ScriptConfig.RootLogPath, "Host");
+            TraceWriter fileTraceWriter = new FileTraceWriter(hostLogFilePath, hostTraceLevel);
+            traceWriters.Add(fileTraceWriter);
+
+            TraceWriter = new CompositeTraceWriter(traceWriters);
         }
 
         // Scan the extensions directory and Load custom extension.
