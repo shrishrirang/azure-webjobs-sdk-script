@@ -19,13 +19,13 @@ namespace Microsoft.Azure.WebJobs.Script.Diagnostics
      *
      * Expected table definition:
      *
-     * CREATE TABLE [functions].[logs]
+     * CREATE TABLE [function].[logs]
      * (
-     * [id] [int] IDENTITY(1,1) PRIMARY KEY,
-     * [timestamp] [datetime2](7) NOT NULL,
-     * [app_name] [nvarchar](max) NOT NULL,
-     * [function_name] [nvarchar](max), -- NULL is OK
-     * [message] [nvarchar](max) NOT NULL
+     * [Id] [int] IDENTITY(1,1) PRIMARY KEY,
+     * [Timestamp] [datetime2](7) NOT NULL,
+     * [AppName] [nvarchar](max) NOT NULL,
+     * [FunctionName] [nvarchar](max), -- NULL is OK
+     * [Message] [nvarchar](max) NOT NULL
      * )
      *
      */
@@ -74,7 +74,7 @@ namespace Microsoft.Azure.WebJobs.Script.Diagnostics
         protected async override Task FlushAsync(IEnumerable<TraceMessage> traceMessages)
         {
             var insertStatement =
-                "INSERT INTO functions.logs (timestamp, app_name, function_name, message) values(@Timestamp, @AppName, @FunctionName, @Message)";
+                "INSERT INTO [function].[Logs] ([Timestamp], [AppName], [FunctionName], [Message]) values(@Timestamp, @AppName, @FunctionName, @Message)";
 
             using (SqlConnection connection = new SqlConnection(_connectionString))
             {
