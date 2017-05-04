@@ -150,12 +150,18 @@ namespace Microsoft.Azure.WebJobs.Script
         {
             get
             {
-                return ScriptConfig.FileLoggingMode == FileLoggingMode.Always ||
-                    (ScriptConfig.FileLoggingMode == FileLoggingMode.DebugOnly && InDebugMode);
+                return ScriptHost.IsStandaloneMode() ||
+                       ScriptConfig.FileLoggingMode == FileLoggingMode.Always ||
+                       (ScriptConfig.FileLoggingMode == FileLoggingMode.DebugOnly && InDebugMode);
             }
         }
 
         internal DateTime LastDebugNotify { get; set; }
+
+        public static bool IsStandaloneMode()
+        {
+            return ScriptHost.AzureWebJobsScriptModeStandalone.Equals(Environment.GetEnvironmentVariable(ScriptHost.AzureWebJobsScriptModeName));
+        }
 
         /// <summary>
         /// Returns true if the specified name is the name of a known function,
@@ -296,7 +302,7 @@ namespace Microsoft.Azure.WebJobs.Script
                 TraceLevel hostTraceLevel = ScriptConfig.HostConfig.Tracing.ConsoleLevel;
 
                 // TODO: This needs to be fixed. Temporarily unblocking standalone scenario
-                if (AzureWebJobsScriptModeStandalone.Equals(Environment.GetEnvironmentVariable(AzureWebJobsScriptModeName)))
+                if (ScriptHost.IsStandaloneMode())
                 {
                     // CompositeTraceWriter is not an IDisposable whereas the trace writers it is composed of can be.
                     // This needs to be fixed. Temporarily, special casing standalone mode initialization to take the easiest (but a bad) path
