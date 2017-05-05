@@ -36,12 +36,18 @@ namespace Microsoft.Azure.WebJobs.Script.Diagnostics
         private readonly string _appName;
         private readonly string _connectionString;
         private readonly string _functionName;
+        private readonly string _machineName;
 
-        public SqlTraceWriter(string connectionString, string appName, string functionName, TraceLevel level) : base(level)
+        public SqlTraceWriter(string connectionString, string machineName, string appName, string functionName, TraceLevel level) : base(level)
         {
             if (string.IsNullOrWhiteSpace(connectionString))
             {
                 throw new ArgumentNullException(nameof(connectionString));
+            }
+
+            if (string.IsNullOrWhiteSpace(machineName))
+            {
+                throw new ArgumentNullException(nameof(machineName));
             }
 
             if (string.IsNullOrWhiteSpace(appName))
@@ -50,15 +56,21 @@ namespace Microsoft.Azure.WebJobs.Script.Diagnostics
             }
 
             this._connectionString = connectionString;
+            this._machineName = machineName;
             this._appName = appName;
             this._functionName = functionName;
         }
 
-        public SqlTraceWriter(string connectionString, string appName, string functionName, TraceLevel level, bool isSystemLoggingEnabled) : base(level, isSystemLoggingEnabled)
+        public SqlTraceWriter(string connectionString, string machineName, string appName, string functionName, TraceLevel level, bool isSystemLoggingEnabled) : base(level, isSystemLoggingEnabled)
         {
             if (string.IsNullOrWhiteSpace(connectionString))
             {
                 throw new ArgumentNullException(nameof(connectionString));
+            }
+
+            if (string.IsNullOrWhiteSpace(machineName))
+            {
+                throw new ArgumentNullException(nameof(machineName));
             }
 
             if (string.IsNullOrWhiteSpace(appName))
@@ -67,6 +79,7 @@ namespace Microsoft.Azure.WebJobs.Script.Diagnostics
             }
 
             this._connectionString = connectionString;
+            this._machineName = machineName;
             this._appName = appName;
             this._functionName = functionName;
         }
@@ -74,7 +87,7 @@ namespace Microsoft.Azure.WebJobs.Script.Diagnostics
         protected async override Task FlushAsync(IEnumerable<TraceMessage> traceMessages)
         {
             var insertStatement =
-                "INSERT INTO [function].[Logs] ([Timestamp], [AppName], [FunctionName], [Message]) values(@Timestamp, @AppName, @FunctionName, @Message)";
+                "INSERT INTO [function].[Logs] ([Timestamp], [ServerName], [AppName], [FunctionName], [TraceLevel], [Message]) values(@Timestamp, @ServerName, @AppName, @FunctionName, @TraceLevel, @Message)";
 
             using (SqlConnection connection = new SqlConnection(_connectionString))
             {
@@ -83,6 +96,8 @@ namespace Microsoft.Azure.WebJobs.Script.Diagnostics
                 using (SqlCommand command = new SqlCommand(insertStatement, connection))
                 {
                     command.Parameters.Add("@Timestamp", SqlDbType.DateTime2);
+                    command.Parameters.Add("@ServerName", SqlDbType.NVarChar).Value = _machineName;
+                    command.Parameters.Add("@TraceLevel", SqlDbType.Int).Value = 100;
                     command.Parameters.Add("@AppName", SqlDbType.NVarChar).Value = _appName;
                     command.Parameters.Add("@FunctionName", SqlDbType.NVarChar).Value = _functionName ?? (object)DBNull.Value;
                     command.Parameters.Add("@Message", SqlDbType.NVarChar);

@@ -450,6 +450,7 @@ namespace Microsoft.Azure.WebJobs.Script
             if (!string.IsNullOrWhiteSpace(sqlTracerConnectionString))
             {
                 var sqlTraceWriter = new SqlTraceWriter(sqlTracerConnectionString,
+                    ScriptSettingsManager.Instance.GetSetting(EnvironmentSettingNames.AzureWebsiteInstanceId),
                     ScriptSettingsManager.Instance.GetSetting(EnvironmentSettingNames.AzureWebsiteName),
                     null, // no function name for host level tracing
                     hostTraceLevel);

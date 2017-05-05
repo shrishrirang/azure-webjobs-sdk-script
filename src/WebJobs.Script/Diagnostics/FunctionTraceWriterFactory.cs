@@ -32,6 +32,7 @@ namespace Microsoft.Azure.WebJobs.Script
                 if (ScriptHost.IsStandaloneMode())
                 {
                     sqlTraceWriter = new SqlTraceWriter(AmbientConnectionStringProvider.Instance.GetConnectionString("SqlTracer"),
+                                              ScriptSettingsManager.Instance.GetSetting(EnvironmentSettingNames.AzureWebsiteInstanceId),
                                               ScriptSettingsManager.Instance.GetSetting(EnvironmentSettingNames.AzureWebsiteName),
                                               _functionName,
                                               _scriptHostConfig.HostConfig.Tracing.ConsoleLevel);
