@@ -453,7 +453,7 @@ namespace Microsoft.Azure.WebJobs.Script
                     ScriptSettingsManager.Instance.GetSetting(EnvironmentSettingNames.AzureWebsiteInstanceId),
                     ScriptSettingsManager.Instance.GetSetting(EnvironmentSettingNames.AzureWebsiteName),
                     null, // no function name for host level tracing
-                    hostTraceLevel);
+                    TraceLevel.Verbose /* TODO: should be hostTraceLevel instead */);
 
                 traceWriters.Add(sqlTraceWriter);
             }

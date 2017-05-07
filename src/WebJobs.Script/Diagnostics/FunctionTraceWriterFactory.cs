@@ -35,7 +35,7 @@ namespace Microsoft.Azure.WebJobs.Script
                                               ScriptSettingsManager.Instance.GetSetting(EnvironmentSettingNames.AzureWebsiteInstanceId),
                                               ScriptSettingsManager.Instance.GetSetting(EnvironmentSettingNames.AzureWebsiteName),
                                               _functionName,
-                                              _scriptHostConfig.HostConfig.Tracing.ConsoleLevel);
+                                              TraceLevel.Verbose /* TODO: Should be _scriptHostConfig.HostConfig.Tracing.ConsoleLevel instead */);
 
                     fileTraceWriter = GetFileTraceWriter();
 
