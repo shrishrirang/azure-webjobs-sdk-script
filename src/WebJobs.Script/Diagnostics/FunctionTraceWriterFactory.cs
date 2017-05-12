@@ -1,9 +1,12 @@
 ﻿// Copyright (c) .NET Foundation. All rights reserved.
 // Licensed under the MIT License. See License.txt in the project root for license information.
 
+using System;
 using System.Diagnostics;
 using System.IO;
 using Microsoft.Azure.WebJobs.Host;
+using Microsoft.Azure.WebJobs.Script.Config;
+using Microsoft.Azure.WebJobs.Script.Diagnostics;
 
 namespace Microsoft.Azure.WebJobs.Script
 {
@@ -20,14 +23,53 @@ namespace Microsoft.Azure.WebJobs.Script
 
         public TraceWriter Create()
         {
-            if (_scriptHostConfig.FileLoggingMode != FileLoggingMode.Never)
-            {
-                TraceLevel functionTraceLevel = _scriptHostConfig.HostConfig.Tracing.ConsoleLevel;
-                string logFilePath = Path.Combine(_scriptHostConfig.RootLogPath, "Function", _functionName);
-                return new FileTraceWriter(logFilePath, functionTraceLevel);
-            }
+            SqlTraceWriter sqlTraceWriter = null;
+            FileTraceWriter fileTraceWriter = null;
 
-            return NullTraceWriter.Instance;
+            try
+            {
+                // TODO: This needs to be fixed. Temporarily unblocking standalone scenario
+                if (ScriptHost.IsStandaloneMode())
+                {
+                    sqlTraceWriter = new SqlTraceWriter(AmbientConnectionStringProvider.Instance.GetConnectionString("SqlTracer"),
+                                              ScriptSettingsManager.Instance.GetSetting(EnvironmentSettingNames.AzureWebsiteInstanceId),
+                                              ScriptSettingsManager.Instance.GetSetting(EnvironmentSettingNames.AzureWebsiteName),
+                                              _functionName,
+                                              TraceLevel.Verbose /* TODO: Should be _scriptHostConfig.HostConfig.Tracing.ConsoleLevel instead */);
+
+                    fileTraceWriter = GetFileTraceWriter();
+
+                    return new CompositeTraceWriter(new TraceWriter[] { sqlTraceWriter, fileTraceWriter });
+                }
+
+                if (_scriptHostConfig.FileLoggingMode != FileLoggingMode.Never)
+                {
+                    fileTraceWriter = GetFileTraceWriter();
+                }
+
+                return NullTraceWriter.Instance;
+            }
+            catch
+            {
+                if (sqlTraceWriter != null)
+                {
+                    sqlTraceWriter.Dispose();
+                }
+
+                if (sqlTraceWriter != null)
+                {
+                    fileTraceWriter.Dispose();
+                }
+
+                throw;
+            }
+        }
+
+        private FileTraceWriter GetFileTraceWriter()
+        {
+            TraceLevel functionTraceLevel = _scriptHostConfig.HostConfig.Tracing.ConsoleLevel;
+            string logFilePath = Path.Combine(_scriptHostConfig.RootLogPath, "Function", _functionName);
+            return new FileTraceWriter(logFilePath, functionTraceLevel);
         }
     }
 }

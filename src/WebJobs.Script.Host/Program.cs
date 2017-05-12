@@ -26,6 +26,11 @@ namespace Microsoft.Azure.WebJobs.Script.Host
                 RootScriptPath = rootPath
             };
 
+            if (args.Length > 1)
+            {
+                config.RootLogPath = args[1];
+            }
+
             var scriptHostManager = new ScriptHostManager(config);
             scriptHostManager.RunAndBlock();
         }
