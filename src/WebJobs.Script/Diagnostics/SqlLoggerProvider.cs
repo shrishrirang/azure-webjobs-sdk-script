@@ -14,7 +14,7 @@ namespace Microsoft.Azure.WebJobs.Script.Diagnostics
 
         public ILogger CreateLogger(string categoryName)
         {
-            return new SqlLogger();
+            return new SqlLogger(categoryName);
         }
     }
 }

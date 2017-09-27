@@ -1,31 +1,66 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
+using System.Data;
+using System.Data.SqlClient;
+using System.Threading.Tasks;
 using Microsoft.Azure.WebJobs.Host;
-using Microsoft.Extensions.Logging;
-using Microsoft.Azure.WebJobs.Script.Extensions;
-using System.IO;
-using System.Text.RegularExpressions;
 
 namespace Microsoft.Azure.WebJobs.Script.Diagnostics
 {
-    // This class shouldn't be in this project. Ok for now, just getting started.
-    public class SqlLogger : ILogger
+    /**
+     * Sql based implementation of ILogger.
+     *
+     * Expected table definition:
+     *
+     * CREATE TABLE [function].[logs]
+     * (
+     * [Id] [int] IDENTITY(1,1) PRIMARY KEY,
+     * [Timestamp] [datetime2](7) NOT NULL,
+     * [AppName] [nvarchar](max) NOT NULL,
+     * [FunctionName] [nvarchar](max), -- NULL is OK
+     * [Message] [nvarchar](max) NOT NULL
+     * )
+     *
+     */
+    public class SqlLogger : BufferedLogger
     {
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception exception, Func<TState, Exception, string> formatter)
-        {
-            IEnumerable<KeyValuePair<string, object>> properties = state as IEnumerable<KeyValuePair<string, object>>;
-            string formattedMessage = formatter?.Invoke(state, exception);
+        public const string ConnectionStringName = "SqlTracer";
 
-            Console.WriteLine("##: " + formattedMessage);
+        public SqlLogger(string category)
+            : base(category)
+        {
         }
 
-        public bool IsEnabled(LogLevel logLevel)
+        protected async override Task FlushAsync(IEnumerable<TraceMessage> traceMessages)
         {
-            return true;
-        }
+            var insertStatement =
+                "INSERT INTO [function].[Logs] ([Timestamp], [ServerName], [AppName], [FunctionName], [TraceLevel], [Message]) values(@Timestamp, @ServerName, @AppName, @FunctionName, @TraceLevel, @Message)";
 
-        public IDisposable BeginScope<TState>(TState state) => DictionaryLoggerScope.Push(state);
+             var conenctionString = AmbientConnectionStringProvider.Instance.GetConnectionString(ConnectionStringName);
+
+            using (SqlConnection connection = new SqlConnection(conenctionString))
+            {
+                await connection.OpenAsync();
+
+                using (SqlCommand command = new SqlCommand(insertStatement, connection))
+                {
+                    command.Parameters.Add("@Timestamp", SqlDbType.DateTime2);
+                    command.Parameters.Add("@ServerName", SqlDbType.NVarChar).Value = "FIXME: server name";
+                    command.Parameters.Add("@TraceLevel", SqlDbType.Int).Value = 100;
+                    command.Parameters.Add("@AppName", SqlDbType.NVarChar).Value = "FIXME: app name";
+                    command.Parameters.Add("@FunctionName", SqlDbType.NVarChar).Value = "FIXME: function name" ?? (object)DBNull.Value;
+                    command.Parameters.Add("@Message", SqlDbType.NVarChar);
+
+                    foreach (var traceMessage in traceMessages)
+                    {
+                        command.Parameters["@Timestamp"].Value = traceMessage.Time;
+                        command.Parameters["@Message"].Value = traceMessage.Message;
+
+                        await command.ExecuteNonQueryAsync();
+                    }
+                }
+            }
+        }
     }
 }
