@@ -877,6 +877,9 @@ namespace Microsoft.Azure.WebJobs.Script
             scriptConfig.HostConfig.LoggerFactory.AddProvider(new FileLoggerProvider(traceWriteFactory,
                 (category, level) => isFileLoggingEnabled()));
 
+            // Not ideal.. temporary code.
+            scriptConfig.HostConfig.LoggerFactory.AddProvider(new SqlLoggerProvider());
+
             // Allow a way to plug in custom LoggerProviders.
             builder.AddLoggerProviders(scriptConfig.HostConfig.LoggerFactory, scriptConfig, settingsManager);
         }
