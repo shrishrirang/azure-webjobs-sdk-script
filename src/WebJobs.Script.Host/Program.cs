@@ -20,6 +20,10 @@ namespace Microsoft.Azure.WebJobs.Script.Host
             {
                 rootPath = (string)args[0];
             }
+            else
+            {
+                rootPath = @"C:\home\site\wwwroot";
+            }
 
             var config = new ScriptHostConfiguration()
             {
