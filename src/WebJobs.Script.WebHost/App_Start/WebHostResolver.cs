@@ -188,7 +188,9 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost
             {
                 RootScriptPath = settings.ScriptPath,
                 RootLogPath = settings.LogPath,
-                FileLoggingMode = FileLoggingMode.DebugOnly,
+                FileLoggingMode = string.CompareOrdinal(Environment.GetEnvironmentVariable("AzureWebJobsScriptMode"), "standalone") == 0
+                        ? FileLoggingMode.Always
+                        : FileLoggingMode.DebugOnly,
                 TraceWriter = settings.TraceWriter,
                 IsSelfHost = settings.IsSelfHost,
                 LoggerFactoryBuilder = settings.LoggerFactoryBuilder
