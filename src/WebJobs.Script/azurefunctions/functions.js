@@ -16,7 +16,7 @@ if (scriptMode !== undefined && scriptMode.toLowerCase() === 'standalone') {
 
     fs.realpathSync = function () {
         var path = arguments[0];
-        // For now, just 
+        // For now, just hardcode c:\home
         if (path !== undefined && (path.toLowerCase().indexOf('c:\\home') === 0 || path.toLowerCase().indexOf('c:\\home\\') === 0)) {
             return path;
         }
