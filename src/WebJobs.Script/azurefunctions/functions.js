@@ -1,6 +1,9 @@
 // Copyright (c) .NET Foundation. All rights reserved.
 // Licensed under the MIT License. See License.txt in the project root for license information.
 
+var util = require('util');
+var process = require('process');
+
 // *HACK BEGIN*
 // Temporary workaround for https://github.com/nodejs/node/issues/8897
 //
@@ -27,8 +30,6 @@ if (scriptMode !== undefined && scriptMode.toLowerCase() === 'standalone') {
 
 // *HACK END*
 
-var util = require('util');
-var process = require('process');
 var request = require('./http/request');
 var response = require('./http/response');
 
