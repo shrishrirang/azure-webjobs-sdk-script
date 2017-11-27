@@ -22,7 +22,7 @@ namespace Microsoft.Azure.WebJobs.Script.Host
             }
             else
             {
-                rootPath = @"D:\shrirang\samples";
+                rootPath = @"c:\home\site\wwwroot";
             }
 
             var config = new ScriptHostConfiguration()
